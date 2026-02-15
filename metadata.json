@@ -1,0 +1,7 @@
+{
+  "name": "SecureProctor Exam System",
+  "description": "An advanced AI-powered examination platform featuring real-time proctoring via Gemini to detect human presence during logic assessments.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
