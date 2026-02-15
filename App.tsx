@@ -22,21 +22,30 @@ const App: React.FC = () => {
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'hidden') {
+        console.warn("[System] Visibility Change Detected: Hidden");
         const msg = "User switched tabs or minimized window.";
         handleTabViolation(msg);
+      } else {
+        console.log("[System] Visibility Change Detected: Visible");
       }
     };
 
     const handleBlur = () => {
+      console.warn("[System] Window Blur Detected");
       const msg = "Window lost focus (User might be using another application).";
       handleTabViolation(msg);
     };
 
+    const handleFocus = () => {
+      console.log("[System] Window Focus Restored");
+    };
+
     const handleTabViolation = (msg: string) => {
+      console.log("[App] Recording Tab Violation:", msg);
       setViolationType('TAB');
       setIsViolationAlert(true);
       
-      // Capture what the user is doing at the moment of the tab switch
+      // Request snapshot immediately
       proctorRef.current?.takeSnapshot(msg, 'TAB_SWITCH');
       
       setTimeout(() => setIsViolationAlert(false), 5000);
@@ -44,10 +53,12 @@ const App: React.FC = () => {
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('blur', handleBlur);
+    window.addEventListener('focus', handleFocus);
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('blur', handleBlur);
+      window.removeEventListener('focus', handleFocus);
     };
   }, [step]);
 
@@ -94,7 +105,9 @@ const App: React.FC = () => {
   };
 
   const handleProctorViolation = (log: ProctorLog) => {
+    console.log("[App] Committing Proctor Log to State:", log);
     setProctorLogs(prev => [...prev, log]);
+    
     if (log.status !== 'TAB_SWITCH') {
       setViolationType('AI');
       setIsViolationAlert(true);

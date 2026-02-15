@@ -30,8 +30,9 @@ const CameraProctor = forwardRef<CameraProctorHandle, CameraProctorProps>(({ onV
         if (videoRef.current) {
           videoRef.current.srcObject = mediaStream;
         }
+        console.log("[Proctor] Camera stream started successfully.");
       } catch (err) {
-        console.error("Camera access denied:", err);
+        console.error("[Proctor] Camera access denied:", err);
       }
     }
 
@@ -42,58 +43,77 @@ const CameraProctor = forwardRef<CameraProctorHandle, CameraProctorProps>(({ onV
     return () => {
       if (stream) {
         stream.getTracks().forEach(track => track.stop());
+        console.log("[Proctor] Camera stream stopped.");
       }
     };
   }, [isActive, stream]);
 
   const performCheck = useCallback(async (customMessage?: string, forcedStatus?: ProctorLog['status']) => {
-    if (!videoRef.current || !canvasRef.current || isProcessing) return;
+    // If it's a background check and we are already processing, skip.
+    // BUT if it's a forcedStatus (Tab Switch), we MUST proceed to record evidence.
+    if (!forcedStatus && isProcessing) {
+      return;
+    }
 
-    setIsProcessing(true);
+    if (!videoRef.current || !canvasRef.current) return;
+
     const canvas = canvasRef.current;
     const video = videoRef.current;
     
-    // Ensure video is ready
-    if (video.videoWidth === 0) {
-       setIsProcessing(false);
-       return;
-    }
+    if (video.videoWidth === 0) return;
 
+    // Capture visual evidence immediately
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     const ctx = canvas.getContext('2d');
+    if (!ctx) return;
     
-    if (ctx) {
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const base64Image = canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const base64Image = canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
+    const snapshotUrl = `data:image/jpeg;base64,${base64Image}`;
+
+    // Handle System Events (Tab Switch) immediately
+    if (forcedStatus) {
+      console.warn(`[Proctor] FORCED LOG: ${forcedStatus} - ${customMessage}`);
+      onViolation({
+        timestamp: Date.now(),
+        status: forcedStatus,
+        message: customMessage || "System event detected",
+        snapshot: snapshotUrl
+      });
+      // We still run analysis in background for description if needed, 
+      // but the log is already committed.
+    } else {
+      // Standard AI background check
+      setIsProcessing(true);
+      console.log("[Proctor] Starting AI Presence Analysis...");
       
-      const analysis = await analyzePresence(base64Image);
-      
-      // If forcedStatus is provided (like TAB_SWITCH), we log it regardless of AI analysis, 
-      // but include the AI description and snapshot
-      if (forcedStatus) {
-        onViolation({
-          timestamp: Date.now(),
-          status: forcedStatus,
-          message: customMessage || analysis.description,
-          snapshot: `data:image/jpeg;base64,${base64Image}`
-        });
-      } else if (!analysis.isPersonPresent || analysis.count !== 1) {
-        onViolation({
-          timestamp: Date.now(),
-          status: analysis.count === 0 ? 'CRITICAL' : 'WARNING',
-          message: analysis.description,
-          snapshot: `data:image/jpeg;base64,${base64Image}`
-        });
+      try {
+        const analysis = await analyzePresence(base64Image);
+        console.log("[Proctor] AI Analysis Result:", analysis);
+        
+        if (!analysis.isPersonPresent || analysis.count !== 1) {
+          onViolation({
+            timestamp: Date.now(),
+            status: analysis.count === 0 ? 'CRITICAL' : 'WARNING',
+            message: analysis.description,
+            snapshot: snapshotUrl
+          });
+        }
+      } catch (err) {
+        console.error("[Proctor] AI Analysis failed:", err);
+      } finally {
+        setIsProcessing(false);
       }
     }
-    setIsProcessing(false);
+    
     setLastCheckTime(Date.now());
   }, [onViolation, isProcessing]);
 
   // Expose takeSnapshot to parent
   useImperativeHandle(ref, () => ({
     takeSnapshot: async (msg, status) => {
+      console.log(`[Proctor] Manual snapshot requested for: ${status}`);
       await performCheck(msg, status);
     }
   }));
