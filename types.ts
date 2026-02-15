@@ -10,6 +10,7 @@ export interface ExamResponse {
   questionId: number;
   selectedOption: number | null;
   isCorrect: boolean;
+  flagged?: boolean;
 }
 
 export interface ProctorLog {
