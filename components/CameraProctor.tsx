@@ -19,20 +19,36 @@ const CameraProctor = forwardRef<CameraProctorHandle, CameraProctorProps>(({ onV
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [lastCheckTime, setLastCheckTime] = useState<number>(Date.now());
   const [isProcessing, setIsProcessing] = useState(false);
+  const [cameraReady, setCameraReady] = useState(false);
 
   useEffect(() => {
+    let currentStream: MediaStream | null = null;
+
     async function startCamera() {
       try {
-        const mediaStream = await navigator.mediaDevices.getUserMedia({ 
-          video: { width: 640, height: 480 } 
+        console.log("[Proctor] Requesting camera access...");
+        currentStream = await navigator.mediaDevices.getUserMedia({ 
+          video: { 
+            width: { ideal: 640 }, 
+            height: { ideal: 480 },
+            facingMode: "user"
+          } 
         });
-        setStream(mediaStream);
+        
+        setStream(currentStream);
+        
         if (videoRef.current) {
-          videoRef.current.srcObject = mediaStream;
+          videoRef.current.srcObject = currentStream;
+          // Explicitly call play to ensure video starts
+          try {
+            await videoRef.current.play();
+            console.log("[Proctor] Camera stream playing.");
+          } catch (e) {
+            console.warn("[Proctor] Auto-play prevented, waiting for user interaction.", e);
+          }
         }
-        console.log("[Proctor] Camera stream started successfully.");
       } catch (err) {
-        console.error("[Proctor] Camera access denied:", err);
+        console.error("[Proctor] Camera access error:", err);
       }
     }
 
@@ -41,67 +57,67 @@ const CameraProctor = forwardRef<CameraProctorHandle, CameraProctorProps>(({ onV
     }
 
     return () => {
-      if (stream) {
-        stream.getTracks().forEach(track => track.stop());
-        console.log("[Proctor] Camera stream stopped.");
+      if (currentStream) {
+        currentStream.getTracks().forEach(track => track.stop());
+        console.log("[Proctor] Camera tracks stopped.");
       }
     };
   }, [isActive, stream]);
 
   const performCheck = useCallback(async (customMessage?: string, forcedStatus?: ProctorLog['status']) => {
-    // If it's a background check and we are already processing, skip.
-    // BUT if it's a forcedStatus (Tab Switch), we MUST proceed to record evidence.
+    // SYSTEM EVENT BYPASS: If it's a forced status (Tab Switch), we proceed even if AI is processing.
     if (!forcedStatus && isProcessing) {
       return;
     }
 
-    if (!videoRef.current || !canvasRef.current) return;
-
-    const canvas = canvasRef.current;
     const video = videoRef.current;
+    const canvas = canvasRef.current;
     
-    if (video.videoWidth === 0) return;
+    // Ensure video is ready to be captured
+    if (!video || !canvas || video.readyState < 2 || video.videoWidth === 0) {
+      console.warn("[Proctor] Video not ready for snapshot. ReadyState:", video?.readyState);
+      return;
+    }
 
-    // Capture visual evidence immediately
+    const canvasCtx = canvas.getContext('2d');
+    if (!canvasCtx) return;
+
+    // Capture visual frame
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    canvasCtx.drawImage(video, 0, 0, canvas.width, canvas.height);
     
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const base64Image = canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
+    const base64Image = canvas.toDataURL('image/jpeg', 0.6).split(',')[1];
     const snapshotUrl = `data:image/jpeg;base64,${base64Image}`;
 
-    // Handle System Events (Tab Switch) immediately
     if (forcedStatus) {
-      console.warn(`[Proctor] FORCED LOG: ${forcedStatus} - ${customMessage}`);
+      // Immediate recording for system events (Tab Switching)
+      console.log(`[Proctor] Recording FORCED snapshot: ${forcedStatus}`);
       onViolation({
         timestamp: Date.now(),
         status: forcedStatus,
-        message: customMessage || "System event detected",
+        message: customMessage || "System event detected.",
         snapshot: snapshotUrl
       });
-      // We still run analysis in background for description if needed, 
-      // but the log is already committed.
     } else {
-      // Standard AI background check
+      // Routine AI Check
       setIsProcessing(true);
-      console.log("[Proctor] Starting AI Presence Analysis...");
+      console.log("[Proctor] Running background AI analysis...");
       
       try {
-        const analysis = await analyzePresence(base64Image);
-        console.log("[Proctor] AI Analysis Result:", analysis);
+        const result = await analyzePresence(base64Image);
+        console.log("[AI] Result:", result);
         
-        if (!analysis.isPersonPresent || analysis.count !== 1) {
+        if (!result.isPersonPresent || result.count !== 1) {
           onViolation({
             timestamp: Date.now(),
-            status: analysis.count === 0 ? 'CRITICAL' : 'WARNING',
-            message: analysis.description,
+            status: result.count === 0 ? 'CRITICAL' : 'WARNING',
+            message: result.description,
             snapshot: snapshotUrl
           });
         }
       } catch (err) {
-        console.error("[Proctor] AI Analysis failed:", err);
+        console.error("[AI] Analysis failed:", err);
       } finally {
         setIsProcessing(false);
       }
@@ -110,47 +126,53 @@ const CameraProctor = forwardRef<CameraProctorHandle, CameraProctorProps>(({ onV
     setLastCheckTime(Date.now());
   }, [onViolation, isProcessing]);
 
-  // Expose takeSnapshot to parent
   useImperativeHandle(ref, () => ({
     takeSnapshot: async (msg, status) => {
-      console.log(`[Proctor] Manual snapshot requested for: ${status}`);
+      console.log(`[Proctor] Manual trigger: ${status} | ${msg}`);
       await performCheck(msg, status);
     }
   }));
 
   useEffect(() => {
     if (!isActive) return;
-
-    const intervalId = setInterval(() => {
+    const interval = setInterval(() => {
       if (Date.now() - lastCheckTime >= PROCTOR_CHECK_INTERVAL) {
         performCheck();
       }
     }, 1000);
-
-    return () => clearInterval(intervalId);
+    return () => clearInterval(interval);
   }, [isActive, lastCheckTime, performCheck]);
 
   return (
-    <div className="relative overflow-hidden rounded-2xl bg-black shadow-xl border-4 border-slate-200">
+    <div className="relative overflow-hidden rounded-[2rem] bg-slate-900 shadow-2xl border-4 border-white dark:border-slate-800 w-full h-full flex items-center justify-center">
+      {/* Removed grayscale and high contrast to fix black-screen visual issues */}
       <video
         ref={videoRef}
         autoPlay
         muted
         playsInline
-        className="w-full h-auto object-cover grayscale contrast-125"
+        onLoadedMetadata={() => setCameraReady(true)}
+        className={`w-full h-full object-cover transition-opacity duration-500 ${cameraReady ? 'opacity-100' : 'opacity-0'}`}
       />
+      
+      {!cameraReady && (
+        <div className="absolute inset-0 flex items-center justify-center bg-slate-900">
+           <span className="material-symbols-outlined animate-spin text-white opacity-20 text-4xl">refresh</span>
+        </div>
+      )}
+
       <canvas ref={canvasRef} className="hidden" />
       
-      <div className="absolute top-4 left-4 flex items-center space-x-2">
-        <div className={`w-3 h-3 rounded-full animate-pulse ${isActive ? 'bg-red-500' : 'bg-gray-500'}`} />
-        <span className="text-xs font-bold text-white uppercase tracking-widest drop-shadow-md">
-          {isActive ? 'Live Proctoring' : 'Standby'}
+      <div className="absolute top-3 left-3 flex items-center space-x-2 bg-black/50 backdrop-blur-md px-2.5 py-1 rounded-full">
+        <div className={`w-2 h-2 rounded-full ${isActive ? 'bg-red-500 animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.8)]' : 'bg-slate-500'}`} />
+        <span className="text-[9px] font-black text-white uppercase tracking-[0.1em]">
+          {isActive ? 'Live' : 'Off'}
         </span>
       </div>
 
       {isProcessing && (
-        <div className="absolute bottom-4 right-4 bg-white/10 backdrop-blur-md px-3 py-1 rounded-full text-[10px] text-white">
-          AI Analysis...
+        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-primary/80 backdrop-blur-md px-3 py-1 rounded-full text-[8px] font-black text-white uppercase tracking-[0.2em] shadow-lg animate-pulse">
+          Analyzing
         </div>
       )}
     </div>
