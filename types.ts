@@ -14,7 +14,7 @@ export interface ExamResponse {
 
 export interface ProctorLog {
   timestamp: number;
-  status: 'SAFE' | 'WARNING' | 'CRITICAL';
+  status: 'SAFE' | 'WARNING' | 'CRITICAL' | 'TAB_SWITCH';
   message: string;
   snapshot?: string;
 }

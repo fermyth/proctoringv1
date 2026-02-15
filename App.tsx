@@ -1,8 +1,8 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { LOGIC_QUESTIONS, EXAM_TIME_LIMIT } from './constants';
 import { ExamStep, ExamResponse, ProctorLog } from './types';
-import CameraProctor from './components/CameraProctor';
+import CameraProctor, { CameraProctorHandle } from './components/CameraProctor';
 
 const App: React.FC = () => {
   const [step, setStep] = useState<ExamStep>(ExamStep.EXPLANATION);
@@ -11,7 +11,45 @@ const App: React.FC = () => {
   const [proctorLogs, setProctorLogs] = useState<ProctorLog[]>([]);
   const [timeLeft, setTimeLeft] = useState(EXAM_TIME_LIMIT);
   const [isViolationAlert, setIsViolationAlert] = useState(false);
+  const [violationType, setViolationType] = useState<'AI' | 'TAB'>('AI');
   const [selectedLog, setSelectedLog] = useState<ProctorLog | null>(null);
+  
+  const proctorRef = useRef<CameraProctorHandle>(null);
+
+  // Tab Monitoring Logic
+  useEffect(() => {
+    if (step !== ExamStep.TESTING) return;
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        const msg = "User switched tabs or minimized window.";
+        handleTabViolation(msg);
+      }
+    };
+
+    const handleBlur = () => {
+      const msg = "Window lost focus (User might be using another application).";
+      handleTabViolation(msg);
+    };
+
+    const handleTabViolation = (msg: string) => {
+      setViolationType('TAB');
+      setIsViolationAlert(true);
+      
+      // Capture what the user is doing at the moment of the tab switch
+      proctorRef.current?.takeSnapshot(msg, 'TAB_SWITCH');
+      
+      setTimeout(() => setIsViolationAlert(false), 5000);
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('blur', handleBlur);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('blur', handleBlur);
+    };
+  }, [step]);
 
   const handleNext = useCallback(() => {
     if (currentIndex < LOGIC_QUESTIONS.length - 1) {
@@ -57,8 +95,11 @@ const App: React.FC = () => {
 
   const handleProctorViolation = (log: ProctorLog) => {
     setProctorLogs(prev => [...prev, log]);
-    setIsViolationAlert(true);
-    setTimeout(() => setIsViolationAlert(false), 3000);
+    if (log.status !== 'TAB_SWITCH') {
+      setViolationType('AI');
+      setIsViolationAlert(true);
+      setTimeout(() => setIsViolationAlert(false), 3000);
+    }
   };
 
   const calculateScore = () => {
@@ -85,8 +126,8 @@ const App: React.FC = () => {
                 <li>This test contains <span className="font-bold text-slate-900">10 logic problems</span>.</li>
                 <li>You have exactly <span className="font-bold text-slate-900">30 seconds</span> per question.</li>
                 <li>The camera will be active for <span className="font-bold text-slate-900">real-time AI proctoring</span>.</li>
+                <li><span className="text-red-600 font-bold underline">Tab switching is strictly prohibited</span> and will be logged with a photo.</li>
                 <li>Ensure you are in a well-lit area and remain alone in the frame.</li>
-                <li>Your presence will be monitored by the Gemini AI throughout the duration of the test.</li>
               </ul>
             </div>
             <div className="mt-10 flex flex-col sm:flex-row gap-4">
@@ -102,7 +143,6 @@ const App: React.FC = () => {
 
         {step === ExamStep.TESTING && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-            {/* Left: Question Area */}
             <div className="lg:col-span-8 space-y-6">
               <div className="bg-white p-8 rounded-3xl shadow-xl border border-slate-100 relative min-h-[400px] flex flex-col justify-between">
                 <div>
@@ -149,9 +189,9 @@ const App: React.FC = () => {
               </div>
             </div>
 
-            {/* Right: Proctoring Area */}
             <div className="lg:col-span-4 sticky top-8 space-y-6">
               <CameraProctor 
+                ref={proctorRef}
                 isActive={true} 
                 onViolation={handleProctorViolation}
               />
@@ -165,12 +205,12 @@ const App: React.FC = () => {
                 </h3>
                 <div className="space-y-3">
                   <div className="flex justify-between items-center text-sm">
-                    <span className="text-slate-500">Live Feedback</span>
-                    <span className="text-green-600 font-bold">OPTIMAL</span>
+                    <span className="text-slate-500">Focus Status</span>
+                    <span className="text-green-600 font-bold uppercase">Locked</span>
                   </div>
                   <div className="flex justify-between items-center text-sm">
-                    <span className="text-slate-500">AI Alerts</span>
-                    <span className="text-slate-900 font-bold">{proctorLogs.length} logged</span>
+                    <span className="text-slate-500">Incident Logs</span>
+                    <span className="text-slate-900 font-bold">{proctorLogs.length} total</span>
                   </div>
                 </div>
               </div>
@@ -182,72 +222,80 @@ const App: React.FC = () => {
           <div className="bg-white p-8 md:p-12 rounded-3xl shadow-2xl border border-slate-100 animate-in slide-in-from-bottom duration-700">
             <h1 className="text-4xl font-extrabold text-slate-900 mb-8 flex items-center">
               Examination Report
-              <span className="ml-4 text-sm font-normal text-slate-400 bg-slate-100 px-3 py-1 rounded-full">
-                ID: {Math.random().toString(36).substr(2, 9).toUpperCase()}
-              </span>
             </h1>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-12">
               <div className="bg-blue-50 p-6 rounded-2xl border border-blue-100">
-                <p className="text-blue-600 font-bold text-sm uppercase mb-1">Total Score</p>
-                <p className="text-4xl font-black text-blue-900">{calculateScore()} / {LOGIC_QUESTIONS.length}</p>
+                <p className="text-blue-600 font-bold text-sm uppercase mb-1">Score</p>
+                <p className="text-3xl font-black text-blue-900">{calculateScore()} / {LOGIC_QUESTIONS.length}</p>
               </div>
               <div className="bg-emerald-50 p-6 rounded-2xl border border-emerald-100">
                 <p className="text-emerald-600 font-bold text-sm uppercase mb-1">Accuracy</p>
-                <p className="text-4xl font-black text-emerald-900">{Math.round((calculateScore() / LOGIC_QUESTIONS.length) * 100)}%</p>
+                <p className="text-3xl font-black text-emerald-900">{Math.round((calculateScore() / LOGIC_QUESTIONS.length) * 100)}%</p>
               </div>
-              <div className={`p-6 rounded-2xl border ${proctorLogs.length > 3 ? 'bg-red-50 border-red-100' : 'bg-slate-50 border-slate-200'}`}>
-                <p className={`${proctorLogs.length > 3 ? 'text-red-600' : 'text-slate-500'} font-bold text-sm uppercase mb-1`}>Proctor Alerts</p>
-                <p className={`text-4xl font-black ${proctorLogs.length > 3 ? 'text-red-900' : 'text-slate-900'}`}>{proctorLogs.length}</p>
+              <div className="bg-amber-50 p-6 rounded-2xl border border-amber-100">
+                <p className="text-amber-600 font-bold text-sm uppercase mb-1">AI Alerts</p>
+                <p className="text-3xl font-black text-amber-900">{proctorLogs.filter(l => l.status !== 'TAB_SWITCH').length}</p>
+              </div>
+              <div className="bg-rose-50 p-6 rounded-2xl border border-rose-100">
+                <p className="text-rose-600 font-bold text-sm uppercase mb-1">Tab Activity</p>
+                <p className="text-3xl font-black text-rose-900">{proctorLogs.filter(l => l.status === 'TAB_SWITCH').length}</p>
               </div>
             </div>
 
-            <h3 className="text-xl font-bold text-slate-800 mb-6">Proctoring Timeline</h3>
+            <h3 className="text-xl font-bold text-slate-800 mb-6 flex items-center">
+              <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              Activity Timeline
+            </h3>
             <div className="overflow-x-auto">
               <table className="w-full text-left">
                 <thead>
                   <tr className="border-b border-slate-100">
-                    <th className="pb-4 font-bold text-slate-500 uppercase text-xs tracking-wider">Timestamp</th>
-                    <th className="pb-4 font-bold text-slate-500 uppercase text-xs tracking-wider">Status</th>
-                    <th className="pb-4 font-bold text-slate-500 uppercase text-xs tracking-wider">AI Observation</th>
-                    <th className="pb-4 font-bold text-slate-500 uppercase text-xs tracking-wider">Visual Evidence</th>
+                    <th className="pb-4 font-bold text-slate-500 uppercase text-xs tracking-wider">Time</th>
+                    <th className="pb-4 font-bold text-slate-500 uppercase text-xs tracking-wider">Type</th>
+                    <th className="pb-4 font-bold text-slate-500 uppercase text-xs tracking-wider">Observation</th>
+                    <th className="pb-4 font-bold text-slate-500 uppercase text-xs tracking-wider">Evidence</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {proctorLogs.length === 0 ? (
                     <tr>
-                      <td colSpan={4} className="py-8 text-center text-slate-400 italic">No proctoring violations detected. Excellent conduct.</td>
+                      <td colSpan={4} className="py-8 text-center text-slate-400 italic">Integrity verification passed. No incidents recorded.</td>
                     </tr>
                   ) : (
-                    proctorLogs.map((log, i) => (
+                    proctorLogs.sort((a,b) => b.timestamp - a.timestamp).map((log, i) => (
                       <tr key={i} className="hover:bg-slate-50/50 transition-colors">
                         <td className="py-4 text-sm font-mono text-slate-500">
                           {new Date(log.timestamp).toLocaleTimeString()}
                         </td>
                         <td className="py-4">
-                          <span className={`px-2 py-1 rounded-md text-[10px] font-bold ${
+                          <span className={`px-3 py-1 rounded-full text-[10px] font-black tracking-widest uppercase ${
+                            log.status === 'TAB_SWITCH' ? 'bg-rose-100 text-rose-700' : 
                             log.status === 'CRITICAL' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
                           }`}>
-                            {log.status}
+                            {log.status.replace('_', ' ')}
                           </span>
                         </td>
-                        <td className="py-4 text-sm text-slate-600 pr-4">
+                        <td className="py-4 text-sm text-slate-600 pr-4 max-w-md">
                           {log.message}
                         </td>
                         <td className="py-4">
                           {log.snapshot && (
                             <button 
                               onClick={() => setSelectedLog(log)}
-                              className="group relative inline-block focus:outline-none focus:ring-4 focus:ring-blue-100 rounded-lg transition-transform hover:scale-105 active:scale-95"
+                              className="group relative inline-block focus:outline-none rounded-lg transition-all hover:scale-110"
                             >
                               <img 
                                 src={log.snapshot} 
-                                alt="Violation snapshot" 
-                                className="w-16 h-10 object-cover rounded shadow-sm border border-slate-200 transition-shadow group-hover:shadow-md"
+                                alt="Snapshot" 
+                                className="w-16 h-10 object-cover rounded shadow-sm border border-slate-200"
                               />
                               <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded">
                                 <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                                 </svg>
                               </div>
                             </button>
@@ -263,84 +311,93 @@ const App: React.FC = () => {
             <div className="mt-12 flex justify-center">
               <button 
                 onClick={() => window.location.reload()}
-                className="text-slate-500 hover:text-slate-800 font-bold py-2 px-6 transition-colors"
+                className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-3 px-8 rounded-2xl transition-all"
               >
-                Retake Examination
+                Exit & Reset Session
               </button>
             </div>
           </div>
         )}
       </div>
 
-      {/* Floating Alert for Proctoring Violations during Exam */}
       {isViolationAlert && (
-        <div className="fixed top-8 right-8 z-50 animate-in slide-in-from-right duration-300">
-          <div className="bg-red-600 text-white p-4 rounded-2xl shadow-2xl flex items-center space-x-3 max-w-sm">
-            <div className="bg-white/20 p-2 rounded-full">
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-              </svg>
+        <div className="fixed top-8 right-8 z-[60] animate-in slide-in-from-right duration-500">
+          <div className={`${violationType === 'TAB' ? 'bg-rose-600' : 'bg-red-600'} text-white p-5 rounded-[2rem] shadow-2xl flex items-center space-x-4 max-w-sm border-4 border-white`}>
+            <div className="bg-white/20 p-3 rounded-full animate-bounce">
+              {violationType === 'TAB' ? (
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 12l3-3 3 3 4-4M8 21h8a2 2 0 002-2v-9a2 2 0 00-2-2H8a2 2 0 00-2 2v9a2 2 0 002 2z" />
+                </svg>
+              ) : (
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+              )}
             </div>
             <div>
-              <p className="font-bold">AI Alert Triggered</p>
-              <p className="text-xs text-white/80">Proctoring flag added to your final report.</p>
+              <p className="font-black uppercase tracking-wider text-sm">Integrity Alert</p>
+              <p className="text-xs text-white/90 leading-tight">
+                {violationType === 'TAB' ? 'Unauthorized tab activity detected. Snapshot captured.' : 'Suspicious presence detected by AI proctor.'}
+              </p>
             </div>
           </div>
         </div>
       )}
 
-      {/* Violation Detail Modal */}
       {selectedLog && (
         <div 
-          className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300"
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-md animate-in fade-in duration-300"
           onClick={() => setSelectedLog(null)}
         >
           <div 
-            className="bg-white w-full max-w-3xl rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300"
+            className="bg-white w-full max-w-3xl rounded-[3rem] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300 border-8 border-white"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="relative">
+            <div className="relative group">
               <img 
                 src={selectedLog.snapshot} 
-                alt="Enlarged violation view" 
+                alt="Proctor evidence" 
                 className="w-full h-auto aspect-video object-cover"
               />
-              <button 
-                onClick={() => setSelectedLog(null)}
-                className="absolute top-6 right-6 p-3 bg-white/20 backdrop-blur-md hover:bg-white/40 rounded-full transition-colors text-white"
-              >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
+              <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-t from-slate-900/60 to-transparent pointer-events-none" />
+              <div className="absolute bottom-8 left-10 text-white">
+                <span className="px-3 py-1 bg-white/20 backdrop-blur-md rounded-full text-xs font-bold tracking-widest uppercase border border-white/30">
+                  Visual Evidence ID-{selectedLog.timestamp.toString().slice(-6)}
+                </span>
+              </div>
             </div>
             
-            <div className="p-8 md:p-10">
-              <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+            <div className="p-10">
+              <div className="flex flex-wrap items-center justify-between gap-6 mb-8">
                 <div>
-                  <h2 className="text-2xl font-extrabold text-slate-900">Incident Analysis</h2>
-                  <p className="text-slate-500 font-medium">Recorded at {new Date(selectedLog.timestamp).toLocaleTimeString()} ({new Date(selectedLog.timestamp).toLocaleDateString()})</p>
+                  <h2 className="text-3xl font-black text-slate-900 mb-1">Incident Detail</h2>
+                  <p className="text-slate-400 font-bold uppercase text-xs tracking-widest">
+                    Recorded at {new Date(selectedLog.timestamp).toLocaleTimeString()}
+                  </p>
                 </div>
-                <div className={`px-6 py-2 rounded-full font-bold text-sm tracking-wide ${
-                  selectedLog.status === 'CRITICAL' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
+                <div className={`px-8 py-3 rounded-2xl font-black text-sm tracking-widest uppercase ${
+                  selectedLog.status === 'TAB_SWITCH' ? 'bg-rose-600 text-white' : 
+                  selectedLog.status === 'CRITICAL' ? 'bg-red-600 text-white' : 'bg-amber-500 text-white'
                 }`}>
-                  {selectedLog.status} PRIORITY
+                  {selectedLog.status.replace('_', ' ')}
                 </div>
               </div>
 
-              <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100">
-                <p className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-2">AI Observation</p>
-                <p className="text-xl text-slate-800 font-medium leading-relaxed">
-                  "{selectedLog.message}"
-                </p>
+              <div className="space-y-4">
+                <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-3">System Observation</p>
+                  <p className="text-lg text-slate-700 font-semibold leading-relaxed italic">
+                    "{selectedLog.message}"
+                  </p>
+                </div>
               </div>
 
-              <div className="mt-8 flex justify-end">
+              <div className="mt-10 flex justify-end">
                 <button 
                   onClick={() => setSelectedLog(null)}
-                  className="px-8 py-3 bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 transition-colors"
+                  className="px-10 py-4 bg-slate-900 text-white font-black rounded-2xl hover:bg-slate-800 transition-all hover:scale-105"
                 >
-                  Close Detail
+                  Confirm & Close
                 </button>
               </div>
             </div>

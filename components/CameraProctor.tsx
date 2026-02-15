@@ -1,5 +1,5 @@
 
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useImperativeHandle, forwardRef } from 'react';
 import { analyzePresence } from '../services/geminiService';
 import { PROCTOR_CHECK_INTERVAL } from '../constants';
 import { ProctorLog } from '../types';
@@ -9,7 +9,11 @@ interface CameraProctorProps {
   isActive: boolean;
 }
 
-const CameraProctor: React.FC<CameraProctorProps> = ({ onViolation, isActive }) => {
+export interface CameraProctorHandle {
+  takeSnapshot: (customMessage?: string, status?: ProctorLog['status']) => Promise<void>;
+}
+
+const CameraProctor = forwardRef<CameraProctorHandle, CameraProctorProps>(({ onViolation, isActive }, ref) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
@@ -42,12 +46,19 @@ const CameraProctor: React.FC<CameraProctorProps> = ({ onViolation, isActive }) 
     };
   }, [isActive, stream]);
 
-  const performCheck = useCallback(async () => {
+  const performCheck = useCallback(async (customMessage?: string, forcedStatus?: ProctorLog['status']) => {
     if (!videoRef.current || !canvasRef.current || isProcessing) return;
 
     setIsProcessing(true);
     const canvas = canvasRef.current;
     const video = videoRef.current;
+    
+    // Ensure video is ready
+    if (video.videoWidth === 0) {
+       setIsProcessing(false);
+       return;
+    }
+
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     const ctx = canvas.getContext('2d');
@@ -58,7 +69,16 @@ const CameraProctor: React.FC<CameraProctorProps> = ({ onViolation, isActive }) 
       
       const analysis = await analyzePresence(base64Image);
       
-      if (!analysis.isPersonPresent || analysis.count !== 1) {
+      // If forcedStatus is provided (like TAB_SWITCH), we log it regardless of AI analysis, 
+      // but include the AI description and snapshot
+      if (forcedStatus) {
+        onViolation({
+          timestamp: Date.now(),
+          status: forcedStatus,
+          message: customMessage || analysis.description,
+          snapshot: `data:image/jpeg;base64,${base64Image}`
+        });
+      } else if (!analysis.isPersonPresent || analysis.count !== 1) {
         onViolation({
           timestamp: Date.now(),
           status: analysis.count === 0 ? 'CRITICAL' : 'WARNING',
@@ -70,6 +90,13 @@ const CameraProctor: React.FC<CameraProctorProps> = ({ onViolation, isActive }) 
     setIsProcessing(false);
     setLastCheckTime(Date.now());
   }, [onViolation, isProcessing]);
+
+  // Expose takeSnapshot to parent
+  useImperativeHandle(ref, () => ({
+    takeSnapshot: async (msg, status) => {
+      await performCheck(msg, status);
+    }
+  }));
 
   useEffect(() => {
     if (!isActive) return;
@@ -108,6 +135,6 @@ const CameraProctor: React.FC<CameraProctorProps> = ({ onViolation, isActive }) 
       )}
     </div>
   );
-};
+});
 
 export default CameraProctor;
