@@ -23,18 +23,15 @@ const App: React.FC = () => {
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'hidden') {
-        console.warn("[System] Browser tab hidden event.");
         handleTabViolation("User minimized window or switched tabs.");
       }
     };
 
     const handleBlur = () => {
-      console.warn("[System] Browser focus lost (blur event).");
       handleTabViolation("Window lost focus. User interacting with another application.");
     };
 
     const handleTabViolation = (msg: string) => {
-      console.log("[App] Detected Tab Violation. Alerting and capturing snapshot...");
       setViolationType('TAB');
       setIsViolationAlert(true);
       
@@ -62,7 +59,6 @@ const App: React.FC = () => {
     const timer = setInterval(() => {
       setTimeLeft(prev => {
         if (prev <= 1) {
-          console.log("[App] Time expired. Auto-submitting exam.");
           setStep(ExamStep.SUMMARY);
           return 0;
         }
@@ -123,9 +119,7 @@ const App: React.FC = () => {
   };
 
   const handleProctorViolation = (log: ProctorLog) => {
-    console.log("[App] Committing proctor log to state...", log);
     setProctorLogs(prev => [...prev, log]);
-    
     if (log.status !== 'TAB_SWITCH') {
       setViolationType('AI');
       setIsViolationAlert(true);
@@ -167,7 +161,7 @@ const App: React.FC = () => {
                 </li>
                 <li className="flex items-start gap-3">
                   <span className="material-symbols-outlined text-slate-400 mt-1">timer</span>
-                  <span><strong>Global Category Timer</strong>: You have {EXAM_TIME_LIMIT / 60} minutes to complete all questions in this section. Navigation does not reset the clock.</span>
+                  <span><strong>Global Category Timer</strong>: You have {EXAM_TIME_LIMIT / 60} minutes to complete all questions.</span>
                 </li>
               </ul>
             </div>
@@ -207,14 +201,36 @@ const App: React.FC = () => {
                 </div>
               </div>
             </div>
-            <div className="absolute bottom-0 left-0 w-full h-1 bg-slate-100 dark:bg-slate-800">
-              <div className="h-full bg-primary transition-all duration-500" style={{ width: `${((currentIndex + 1) / LOGIC_QUESTIONS.length) * 100}%` }} />
-            </div>
           </header>
 
           <main className="flex-grow max-w-[1440px] mx-auto w-full px-4 md:px-6 py-4 md:py-8 flex flex-col lg:flex-row gap-8">
             <div className="flex-grow flex flex-col gap-6">
-              <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden">
+              
+              {/* TOP NAVIGATOR RIBBON */}
+              <div className="bg-white dark:bg-slate-900 p-2 md:p-3 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-x-auto no-scrollbar flex items-center gap-2 scroll-smooth">
+                {LOGIC_QUESTIONS.map((q, i) => {
+                  const answered = isAnswered(q.id);
+                  const flagged = isFlagged(q.id);
+                  const current = currentIndex === i;
+                  return (
+                    <button 
+                      key={q.id} 
+                      onClick={() => goToQuestion(i)} 
+                      className={`flex-shrink-0 min-w-[40px] md:min-w-[48px] h-10 md:h-12 flex items-center justify-center rounded-xl font-bold text-xs md:text-sm relative transition-all active:scale-95 ${
+                        current ? 'bg-primary/10 text-primary border-2 border-primary ring-4 ring-primary/5' 
+                        : flagged ? 'bg-amber-500 text-white shadow-lg shadow-amber-500/20' 
+                        : answered ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20' 
+                        : 'bg-slate-50 dark:bg-slate-800 text-slate-400 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'
+                      }`}
+                    >
+                      {i + 1}
+                      {flagged && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-amber-400 border-2 border-white rounded-full"></span>}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden">
                 <div className="p-6 md:p-8 border-b border-slate-100 dark:border-slate-800 bg-slate-50/30 dark:bg-slate-800/20">
                   <div className="flex items-center justify-between mb-6">
                     <span className="px-3 py-1 bg-primary/10 text-primary rounded-full text-xs font-bold uppercase tracking-widest border border-primary/20">
@@ -246,13 +262,7 @@ const App: React.FC = () => {
                 </div>
               </div>
 
-              <div className="lg:hidden mt-2 flex justify-center">
-                <button onClick={() => setIsNavigatorOpen(true)} className="flex items-center gap-2 text-primary font-bold text-sm bg-primary/5 hover:bg-primary/10 px-6 py-3 rounded-full border border-primary/20 transition-all">
-                  <span className="material-symbols-outlined text-[20px]">grid_view</span> View Navigator
-                </button>
-              </div>
-
-              <div className="hidden lg:flex items-center justify-between mt-auto pt-6">
+              <div className="hidden lg:flex items-center justify-between mt-auto pt-6 pb-20">
                 <button onClick={handlePrev} disabled={currentIndex === 0} className="flex items-center gap-2 px-6 py-3 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold hover:bg-slate-100 dark:hover:bg-slate-800 transition-all disabled:opacity-30">
                   <span className="material-symbols-outlined">chevron_left</span> Previous
                 </button>
@@ -263,37 +273,27 @@ const App: React.FC = () => {
               </div>
             </div>
 
-            <aside className="hidden lg:flex w-80 flex-shrink-0 flex-col gap-6 sticky top-28 h-fit">
+            <aside className="hidden lg:flex w-80 flex-shrink-0 flex-col gap-6 sticky top-24 h-fit">
               <div className="w-full aspect-[4/3]">
                 <CameraProctor ref={proctorRef} isActive={true} onViolation={handleProctorViolation} />
               </div>
 
               <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 p-6">
                 <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-6 flex items-center gap-2 uppercase tracking-widest">
-                  <span className="material-symbols-outlined text-primary text-xl">grid_view</span> Question Navigator
+                  <span className="material-symbols-outlined text-primary text-xl">analytics</span> Exam Progress
                 </h3>
-                <div className="grid grid-cols-5 gap-3 mb-8">
-                  {LOGIC_QUESTIONS.map((q, i) => {
-                    const answered = isAnswered(q.id);
-                    const flagged = isFlagged(q.id);
-                    const current = currentIndex === i;
-                    return (
-                      <button key={q.id} onClick={() => goToQuestion(i)} className={`w-10 h-10 flex items-center justify-center rounded-lg font-bold text-xs relative transition-all hover:scale-110 ${current ? 'border-2 border-primary bg-primary/10 text-primary ring-2 ring-primary/20' : flagged ? 'border border-amber-400 bg-amber-50 text-amber-600' : answered ? 'bg-emerald-500 text-white shadow-sm' : 'border border-slate-200 dark:border-slate-800 text-slate-400'}`}>
-                        {i + 1}
-                        {flagged && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-amber-500 border-2 border-white dark:border-slate-900 rounded-full"></span>}
-                      </button>
-                    );
-                  })}
-                </div>
-                <div className="space-y-4 pt-4 border-t border-slate-100 dark:border-slate-800">
-                  <div className="flex items-center gap-3 text-xs font-semibold text-slate-500">
-                    <div className="w-3 h-3 rounded bg-emerald-500"></div> <span>Answered</span>
+                <div className="space-y-4">
+                  <div className="flex justify-between text-xs font-bold">
+                    <span className="text-slate-500">Answered</span>
+                    <span className="text-slate-900 dark:text-white">{responses.filter(r => r.selectedOption !== null).length} / {LOGIC_QUESTIONS.length}</span>
                   </div>
-                  <div className="flex items-center gap-3 text-xs font-semibold text-slate-500">
-                    <div className="w-3 h-3 rounded border-2 border-primary bg-primary/10"></div> <span>Current</span>
+                  <div className="w-full h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                    <div className="h-full bg-emerald-500 transition-all duration-500" style={{ width: `${(responses.filter(r => r.selectedOption !== null).length / LOGIC_QUESTIONS.length) * 100}%` }}></div>
                   </div>
-                  <div className="flex items-center gap-3 text-xs font-semibold text-slate-500">
-                    <div className="w-3 h-3 rounded bg-amber-500"></div> <span>Flagged</span>
+                  <div className="flex items-center gap-3 text-[10px] font-black uppercase text-slate-500 pt-4 border-t border-slate-100 dark:border-slate-800">
+                    <div className="flex items-center gap-1"><div className="w-2 h-2 rounded bg-emerald-500"></div> Done</div>
+                    <div className="flex items-center gap-1"><div className="w-2 h-2 rounded bg-amber-500"></div> Flag</div>
+                    <div className="flex items-center gap-1"><div className="w-2 h-2 rounded bg-slate-200 dark:bg-slate-700"></div> Left</div>
                   </div>
                 </div>
               </div>
@@ -309,39 +309,6 @@ const App: React.FC = () => {
               <span className="material-symbols-outlined">chevron_right</span>
             </button>
           </footer>
-
-          {isNavigatorOpen && (
-            <>
-              <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[55] animate-in fade-in duration-300" onClick={() => setIsNavigatorOpen(false)}></div>
-              <div className="fixed bottom-0 left-0 right-0 bg-white dark:bg-slate-900 rounded-t-[2.5rem] z-[60] p-8 shadow-2xl animate-in slide-in-from-bottom duration-500">
-                <div className="w-12 h-1.5 bg-slate-200 dark:bg-slate-800 rounded-full mx-auto mb-8"></div>
-                <div className="flex justify-between items-center mb-8">
-                  <h4 className="text-xl font-black text-slate-900 dark:text-white flex items-center gap-2">
-                    <span className="material-symbols-outlined text-primary">grid_view</span> Question Navigator
-                  </h4>
-                  <button onClick={() => setIsNavigatorOpen(false)} className="bg-slate-100 dark:bg-slate-800 p-2 rounded-full"><span className="material-symbols-outlined">close</span></button>
-                </div>
-                <div className="grid grid-cols-5 gap-4 mb-10">
-                  {LOGIC_QUESTIONS.map((q, i) => {
-                    const answered = isAnswered(q.id);
-                    const flagged = isFlagged(q.id);
-                    const current = currentIndex === i;
-                    return (
-                      <button key={q.id} onClick={() => goToQuestion(i)} className={`aspect-square flex items-center justify-center rounded-xl font-bold text-sm relative transition-all ${current ? 'border-2 border-primary bg-primary/10 text-primary ring-2 ring-primary/10' : flagged ? 'bg-amber-100 text-amber-700 border border-amber-300' : answered ? 'bg-emerald-500 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-400'}`}>
-                        {i + 1}
-                        {flagged && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-amber-500 border-2 border-white rounded-full"></span>}
-                      </button>
-                    );
-                  })}
-                </div>
-                <div className="flex gap-6 justify-center text-[10px] font-black uppercase tracking-[0.1em] text-slate-500">
-                  <div className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-emerald-500"></span> Answered</div>
-                  <div className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full border-2 border-primary"></span> Current</div>
-                  <div className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-amber-500"></span> Flagged</div>
-                </div>
-              </div>
-            </>
-          )}
 
           <div className="lg:hidden fixed bottom-24 right-4 w-24 h-32 md:w-32 md:h-44 z-30 shadow-2xl transition-all hover:scale-105 active:scale-95">
             <CameraProctor ref={proctorRef} isActive={true} onViolation={handleProctorViolation} />
