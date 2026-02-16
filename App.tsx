@@ -38,13 +38,9 @@ const App: React.FC = () => {
       setViolationType('TAB');
       setIsViolationAlert(true);
       
-      // Force snapshot recording immediately
       if (proctorRef.current) {
         proctorRef.current.takeSnapshot(msg, 'TAB_SWITCH')
-          .then(() => console.log("[App] Tab Switch snapshot process completed."))
           .catch(e => console.error("[App] Failed to capture tab switch snapshot:", e));
-      } else {
-        console.error("[App] Proctor Ref is null during tab violation!");
       }
       
       setTimeout(() => setIsViolationAlert(false), 5000);
@@ -59,11 +55,28 @@ const App: React.FC = () => {
     };
   }, [step]);
 
+  // Global Timer Logic
+  useEffect(() => {
+    if (step !== ExamStep.TESTING) return;
+
+    const timer = setInterval(() => {
+      setTimeLeft(prev => {
+        if (prev <= 1) {
+          console.log("[App] Time expired. Auto-submitting exam.");
+          setStep(ExamStep.SUMMARY);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [step]);
+
   // Question Navigation
   const handleNext = useCallback(() => {
     if (currentIndex < LOGIC_QUESTIONS.length - 1) {
       setCurrentIndex(prev => prev + 1);
-      setTimeLeft(EXAM_TIME_LIMIT);
     } else {
       setStep(ExamStep.SUMMARY);
     }
@@ -72,29 +85,13 @@ const App: React.FC = () => {
   const handlePrev = useCallback(() => {
     if (currentIndex > 0) {
       setCurrentIndex(prev => prev - 1);
-      setTimeLeft(EXAM_TIME_LIMIT);
     }
   }, [currentIndex]);
 
   const goToQuestion = (index: number) => {
     setCurrentIndex(index);
-    setTimeLeft(EXAM_TIME_LIMIT);
     setIsNavigatorOpen(false);
   };
-
-  useEffect(() => {
-    if (step !== ExamStep.TESTING) return;
-    const timer = setInterval(() => {
-      setTimeLeft(prev => {
-        if (prev <= 1) {
-          handleNext();
-          return EXAM_TIME_LIMIT;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [step, handleNext]);
 
   const handleAnswer = (optionIndex: number) => {
     const isCorrect = optionIndex === LOGIC_QUESTIONS[currentIndex].correctAnswer;
@@ -126,7 +123,7 @@ const App: React.FC = () => {
   };
 
   const handleProctorViolation = (log: ProctorLog) => {
-    console.log("[App] Committing proctor log to state database...", log);
+    console.log("[App] Committing proctor log to state...", log);
     setProctorLogs(prev => [...prev, log]);
     
     if (log.status !== 'TAB_SWITCH') {
@@ -134,6 +131,12 @@ const App: React.FC = () => {
       setIsViolationAlert(true);
       setTimeout(() => setIsViolationAlert(false), 3000);
     }
+  };
+
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
   const calculateScore = () => responses.filter(r => r.isCorrect).length;
@@ -164,7 +167,7 @@ const App: React.FC = () => {
                 </li>
                 <li className="flex items-start gap-3">
                   <span className="material-symbols-outlined text-slate-400 mt-1">timer</span>
-                  <span><strong>Timed Sections</strong>: 30 seconds per question.</span>
+                  <span><strong>Global Category Timer</strong>: You have {EXAM_TIME_LIMIT / 60} minutes to complete all questions in this section. Navigation does not reset the clock.</span>
                 </li>
               </ul>
             </div>
@@ -198,8 +201,8 @@ const App: React.FC = () => {
               <div className="flex items-center gap-4 md:gap-8">
                 <div className="flex items-center gap-2 md:gap-3 bg-primary/10 px-3 md:px-4 py-1.5 md:py-2 rounded-lg border border-primary/20">
                   <span className="material-symbols-outlined text-primary text-sm md:text-base">timer</span>
-                  <span className={`text-sm md:text-lg font-mono font-bold text-primary ${timeLeft < 10 ? 'animate-pulse text-rose-600' : ''}`}>
-                    00:{timeLeft.toString().padStart(2, '0')}
+                  <span className={`text-sm md:text-lg font-mono font-bold text-primary ${timeLeft < 20 ? 'animate-pulse text-rose-600' : ''}`}>
+                    {formatTime(timeLeft)}
                   </span>
                 </div>
               </div>
