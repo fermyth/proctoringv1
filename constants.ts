@@ -64,5 +64,12 @@ export const LOGIC_QUESTIONS: Question[] = [
   }
 ];
 
-export const EXAM_TIME_LIMIT = 120; // 2 Minutes total for the category
-export const PROCTOR_CHECK_INTERVAL = 10000; // 2 seconds frequency
+export const EXAM_TIME_LIMIT = 300; // 5 Minutes
+export const PROCTOR_CHECK_INTERVAL = 5000; // 2 seconds frequency
+
+/**
+ * PROCTOR_MODE Configuration:
+ * 'GEMINI': Uses Google Gemini Vision API (Cloud-based, very high accuracy, detects posture/context)
+ * 'LOCAL': Uses face-api.js (Client-side, zero cost, detects presence/face count)
+ */
+export const PROCTOR_MODE: 'GEMINI' | 'LOCAL' = 'LOCAL';
