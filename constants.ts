@@ -65,4 +65,4 @@ export const LOGIC_QUESTIONS: Question[] = [
 ];
 
 export const EXAM_TIME_LIMIT = 120; // 2 Minutes total for the category
-export const PROCTOR_CHECK_INTERVAL = 5000; // 5 seconds
+export const PROCTOR_CHECK_INTERVAL = 10000; // 2 seconds frequency
