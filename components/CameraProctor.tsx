@@ -19,94 +19,105 @@ const CameraProctor = forwardRef<CameraProctorHandle, CameraProctorProps>(({ onV
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [lastCheckTime, setLastCheckTime] = useState<number>(Date.now());
   const [isProcessing, setIsProcessing] = useState(false);
-  const [cameraReady, setCameraReady] = useState(false);
+  const [cameraActive, setCameraActive] = useState(false);
 
+  // Initialize Camera Stream
   useEffect(() => {
+    if (!isActive) return;
+
+    let mounted = true;
     let currentStream: MediaStream | null = null;
 
     async function startCamera() {
       try {
-        console.log("[Proctor] Requesting camera access...");
+        console.log("[Proctor] Initializing camera device...");
         currentStream = await navigator.mediaDevices.getUserMedia({ 
           video: { 
             width: { ideal: 640 }, 
             height: { ideal: 480 },
             facingMode: "user"
-          } 
+          },
+          audio: false
         });
         
-        setStream(currentStream);
-        
-        if (videoRef.current) {
-          videoRef.current.srcObject = currentStream;
-          // Explicitly call play to ensure video starts
-          try {
-            await videoRef.current.play();
-            console.log("[Proctor] Camera stream playing.");
-          } catch (e) {
-            console.warn("[Proctor] Auto-play prevented, waiting for user interaction.", e);
-          }
+        if (mounted) {
+          setStream(currentStream);
+          console.log("[Proctor] Stream acquired.");
+        } else {
+          currentStream.getTracks().forEach(t => t.stop());
         }
       } catch (err) {
-        console.error("[Proctor] Camera access error:", err);
+        console.error("[Proctor] Camera access denied or failed:", err);
       }
     }
 
-    if (isActive && !stream) {
-      startCamera();
-    }
+    startCamera();
 
     return () => {
+      mounted = false;
       if (currentStream) {
-        currentStream.getTracks().forEach(track => track.stop());
-        console.log("[Proctor] Camera tracks stopped.");
+        currentStream.getTracks().forEach(track => {
+          track.stop();
+          console.log(`[Proctor] Track ${track.label} stopped.`);
+        });
       }
     };
-  }, [isActive, stream]);
+  }, [isActive]);
+
+  // Connect Stream to Video Element
+  useEffect(() => {
+    const video = videoRef.current;
+    if (video && stream) {
+      video.srcObject = stream;
+      video.onloadedmetadata = () => {
+        video.play().catch(e => {
+          console.warn("[Proctor] Auto-play blocked by browser. User interaction required.", e);
+        });
+      };
+    }
+  }, [stream]);
 
   const performCheck = useCallback(async (customMessage?: string, forcedStatus?: ProctorLog['status']) => {
-    // SYSTEM EVENT BYPASS: If it's a forced status (Tab Switch), we proceed even if AI is processing.
-    if (!forcedStatus && isProcessing) {
+    // Only bypass if it's a critical system event like TAB_SWITCH
+    if (!forcedStatus && (isProcessing || !cameraActive)) {
       return;
     }
 
     const video = videoRef.current;
     const canvas = canvasRef.current;
     
-    // Ensure video is ready to be captured
+    // Safety checks for video state
     if (!video || !canvas || video.readyState < 2 || video.videoWidth === 0) {
-      console.warn("[Proctor] Video not ready for snapshot. ReadyState:", video?.readyState);
+      console.warn("[Proctor] Capture skipped: Video element not ready.");
       return;
     }
 
-    const canvasCtx = canvas.getContext('2d');
-    if (!canvasCtx) return;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return;
 
-    // Capture visual frame
+    // Snapshot capture logic
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
-    canvasCtx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     
-    const base64Image = canvas.toDataURL('image/jpeg', 0.6).split(',')[1];
+    const base64Image = canvas.toDataURL('image/jpeg', 0.5).split(',')[1];
     const snapshotUrl = `data:image/jpeg;base64,${base64Image}`;
 
     if (forcedStatus) {
-      // Immediate recording for system events (Tab Switching)
-      console.log(`[Proctor] Recording FORCED snapshot: ${forcedStatus}`);
+      console.log(`[Proctor] EVENT LOG: ${forcedStatus}`);
       onViolation({
         timestamp: Date.now(),
         status: forcedStatus,
-        message: customMessage || "System event detected.",
+        message: customMessage || "System integrity event.",
         snapshot: snapshotUrl
       });
     } else {
-      // Routine AI Check
       setIsProcessing(true);
-      console.log("[Proctor] Running background AI analysis...");
+      console.log("[Proctor] AI verification in progress...");
       
       try {
         const result = await analyzePresence(base64Image);
-        console.log("[AI] Result:", result);
+        console.log("[Proctor] AI Result:", result);
         
         if (!result.isPersonPresent || result.count !== 1) {
           onViolation({
@@ -117,22 +128,22 @@ const CameraProctor = forwardRef<CameraProctorHandle, CameraProctorProps>(({ onV
           });
         }
       } catch (err) {
-        console.error("[AI] Analysis failed:", err);
+        console.error("[Proctor] AI analysis failed:", err);
       } finally {
         setIsProcessing(false);
       }
     }
     
     setLastCheckTime(Date.now());
-  }, [onViolation, isProcessing]);
+  }, [onViolation, isProcessing, cameraActive]);
 
   useImperativeHandle(ref, () => ({
     takeSnapshot: async (msg, status) => {
-      console.log(`[Proctor] Manual trigger: ${status} | ${msg}`);
       await performCheck(msg, status);
     }
   }));
 
+  // Background Loop
   useEffect(() => {
     if (!isActive) return;
     const interval = setInterval(() => {
@@ -144,35 +155,40 @@ const CameraProctor = forwardRef<CameraProctorHandle, CameraProctorProps>(({ onV
   }, [isActive, lastCheckTime, performCheck]);
 
   return (
-    <div className="relative overflow-hidden rounded-[2rem] bg-slate-900 shadow-2xl border-4 border-white dark:border-slate-800 w-full h-full flex items-center justify-center">
-      {/* Removed grayscale and high contrast to fix black-screen visual issues */}
+    <div className="relative w-full h-full min-h-[120px] rounded-[2rem] bg-slate-950 overflow-hidden shadow-2xl ring-4 ring-white dark:ring-slate-800">
       <video
         ref={videoRef}
         autoPlay
         muted
         playsInline
-        onLoadedMetadata={() => setCameraReady(true)}
-        className={`w-full h-full object-cover transition-opacity duration-500 ${cameraReady ? 'opacity-100' : 'opacity-0'}`}
+        onPlaying={() => {
+          console.log("[Proctor] Video is now playing.");
+          setCameraActive(true);
+        }}
+        className={`w-full h-full object-cover transition-opacity duration-700 ${cameraActive ? 'opacity-100' : 'opacity-0'}`}
+        style={{ transform: 'scaleX(-1)' }} // Mirror view for natural feel
       />
       
-      {!cameraReady && (
-        <div className="absolute inset-0 flex items-center justify-center bg-slate-900">
-           <span className="material-symbols-outlined animate-spin text-white opacity-20 text-4xl">refresh</span>
+      {!cameraActive && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
+           <span className="material-symbols-outlined animate-spin text-white/20 text-3xl">loading</span>
+           <span className="text-[10px] text-white/20 font-bold uppercase tracking-widest">Waking Sensor</span>
         </div>
       )}
 
       <canvas ref={canvasRef} className="hidden" />
       
-      <div className="absolute top-3 left-3 flex items-center space-x-2 bg-black/50 backdrop-blur-md px-2.5 py-1 rounded-full">
-        <div className={`w-2 h-2 rounded-full ${isActive ? 'bg-red-500 animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.8)]' : 'bg-slate-500'}`} />
-        <span className="text-[9px] font-black text-white uppercase tracking-[0.1em]">
-          {isActive ? 'Live' : 'Off'}
+      {/* UI Overlays */}
+      <div className="absolute top-3 left-3 flex items-center gap-2 bg-black/60 backdrop-blur-md px-2.5 py-1 rounded-full border border-white/10">
+        <div className={`w-2 h-2 rounded-full ${cameraActive ? 'bg-red-500 animate-pulse' : 'bg-slate-600'}`} />
+        <span className="text-[9px] font-black text-white uppercase tracking-wider">
+          {cameraActive ? 'Live Proctor' : 'Connecting'}
         </span>
       </div>
 
       {isProcessing && (
-        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-primary/80 backdrop-blur-md px-3 py-1 rounded-full text-[8px] font-black text-white uppercase tracking-[0.2em] shadow-lg animate-pulse">
-          Analyzing
+        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-primary/90 backdrop-blur-md px-3 py-1 rounded-full border border-white/20">
+          <p className="text-[8px] font-black text-white uppercase tracking-[0.2em] animate-pulse">Scanning Integrity</p>
         </div>
       )}
     </div>
