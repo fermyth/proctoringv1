@@ -146,10 +146,10 @@ const App: React.FC = () => {
           <div className="w-full max-w-2xl bg-white dark:bg-slate-900 p-8 md:p-12 rounded-[2.5rem] shadow-2xl border border-slate-200 dark:border-slate-800 animate-in fade-in zoom-in duration-500">
             <div className="flex items-center gap-3 text-primary mb-6">
               <span className="material-symbols-outlined text-4xl">school</span>
-              <h1 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">Quantitative Reasoning</h1>
+              <h1 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">Test Kategory</h1>
             </div>
             <div className="space-y-6 text-slate-600 dark:text-slate-400 text-lg leading-relaxed">
-              <p>Welcome to the Mid-Term Assessment. Please accept the proctoring terms:</p>
+              <p>Welcome to the Test Assessment. Please accept the proctoring terms:</p>
               <ul className="space-y-4">
                 <li className="flex items-start gap-3">
                   <span className="material-symbols-outlined text-primary mt-1">videocam</span>
@@ -184,12 +184,12 @@ const App: React.FC = () => {
               <div className="flex items-center gap-2 md:gap-6">
                 <div className="flex items-center gap-2 text-primary">
                   <span className="material-symbols-outlined text-2xl md:text-3xl">school</span>
-                  <h1 className="text-sm md:text-xl font-bold text-slate-900 dark:text-white tracking-tight hidden sm:block">Mid-Term Assessment</h1>
+                  <h1 className="text-sm md:text-xl font-bold text-slate-900 dark:text-white tracking-tight hidden sm:block">Test Assessment</h1>
                 </div>
                 <div className="h-6 w-[1px] bg-slate-200 dark:bg-slate-700 hidden md:block"></div>
                 <div className="flex flex-col">
                   <span className="text-[10px] md:text-xs font-semibold uppercase tracking-wider text-slate-500">Module</span>
-                  <span className="text-xs md:text-sm font-medium text-slate-800 dark:text-slate-200">Quantitative Reasoning</span>
+                  <span className="text-xs md:text-sm font-medium text-slate-800 dark:text-slate-200">Test Kategory</span>
                 </div>
               </div>
               <div className="flex items-center gap-4 md:gap-8">
