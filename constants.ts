@@ -66,6 +66,7 @@ export const LOGIC_QUESTIONS: Question[] = [
 
 export const EXAM_TIME_LIMIT = 300; // 5 Minutes
 export const PROCTOR_CHECK_INTERVAL = 5000; // 2 seconds frequency
+export const MIN_BANDWIDTH_MBPS = 1.0; // Minimum 1 Mbps required
 
 /**
  * PROCTOR_MODE Configuration:

@@ -1,8 +1,9 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { LOGIC_QUESTIONS, EXAM_TIME_LIMIT } from './constants';
+import { LOGIC_QUESTIONS, EXAM_TIME_LIMIT, MIN_BANDWIDTH_MBPS } from './constants';
 import { ExamStep, ExamResponse, ProctorLog } from './types';
 import CameraProctor, { CameraProctorHandle } from './components/CameraProctor';
+import { testBandwidth } from './services/bandwidthService';
 
 const App: React.FC = () => {
   const [step, setStep] = useState<ExamStep>(ExamStep.EXPLANATION);
@@ -14,8 +15,24 @@ const App: React.FC = () => {
   const [violationType, setViolationType] = useState<'AI' | 'TAB'>('AI');
   const [selectedLog, setSelectedLog] = useState<ProctorLog | null>(null);
   const [isNavigatorOpen, setIsNavigatorOpen] = useState(false);
+  const [bandwidth, setBandwidth] = useState<number | null>(null);
+  const [isTestingBandwidth, setIsTestingBandwidth] = useState(false);
   
   const proctorRef = useRef<CameraProctorHandle>(null);
+
+  // Bandwidth Test Logic
+  const runBandwidthTest = useCallback(async () => {
+    setIsTestingBandwidth(true);
+    const result = await testBandwidth();
+    setBandwidth(result);
+    setIsTestingBandwidth(false);
+  }, []);
+
+  useEffect(() => {
+    if (step === ExamStep.EXPLANATION) {
+      runBandwidthTest();
+    }
+  }, [step, runBandwidthTest]);
 
   // Tab Monitoring Logic
   useEffect(() => {
@@ -146,7 +163,7 @@ const App: React.FC = () => {
           <div className="w-full max-w-2xl bg-white dark:bg-slate-900 p-8 md:p-12 rounded-[2.5rem] shadow-2xl border border-slate-200 dark:border-slate-800 animate-in fade-in zoom-in duration-500">
             <div className="flex items-center gap-3 text-primary mb-6">
               <span className="material-symbols-outlined text-4xl">school</span>
-              <h1 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">Test Kategory</h1>
+              <h1 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">FAME's Test Kategory</h1>
             </div>
             <div className="space-y-6 text-slate-600 dark:text-slate-400 text-lg leading-relaxed">
               <p>Welcome to the Test Assessment. Please accept the proctoring terms:</p>
@@ -163,14 +180,43 @@ const App: React.FC = () => {
                   <span className="material-symbols-outlined text-slate-400 mt-1">timer</span>
                   <span><strong>Global Category Timer</strong>: You have {EXAM_TIME_LIMIT / 60} minutes to complete all questions.</span>
                 </li>
+                <li className="flex items-start gap-3">
+                  <span className="material-symbols-outlined text-indigo-500 mt-1">speed</span>
+                  <div className="flex flex-col">
+                    <span><strong>Network Requirement</strong>: Minimum {MIN_BANDWIDTH_MBPS} Mbps required.</span>
+                    <div className="mt-1 flex items-center gap-2">
+                      <span className="text-sm font-bold text-slate-500">Current: </span>
+                      {isTestingBandwidth ? (
+                        <span className="text-sm text-slate-400 animate-pulse">Measuring...</span>
+                      ) : bandwidth !== null ? (
+                        <div className="flex items-center gap-2">
+                          <span className={`text-sm font-bold ${bandwidth >= MIN_BANDWIDTH_MBPS ? 'text-emerald-500' : 'text-rose-500'}`}>
+                            {bandwidth.toFixed(2)} Mbps {bandwidth < MIN_BANDWIDTH_MBPS ? '(Insufficient)' : '(Verified)'}
+                          </span>
+                          {bandwidth < MIN_BANDWIDTH_MBPS && (
+                            <button 
+                              onClick={runBandwidthTest}
+                              className="text-[10px] bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700 hover:bg-slate-200 transition-colors"
+                            >
+                              Retry
+                            </button>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-sm text-slate-400">Waiting...</span>
+                      )}
+                    </div>
+                  </div>
+                </li>
               </ul>
             </div>
             <button 
               onClick={() => setStep(ExamStep.TESTING)}
-              className="mt-10 w-full bg-primary hover:bg-primary/90 text-white font-bold py-5 rounded-2xl transition-all shadow-xl shadow-primary/20 flex items-center justify-center gap-2 text-xl"
+              disabled={isTestingBandwidth || bandwidth === null || bandwidth < MIN_BANDWIDTH_MBPS}
+              className="mt-10 w-full bg-primary hover:bg-primary/90 text-white font-bold py-5 rounded-2xl transition-all shadow-xl shadow-primary/20 flex items-center justify-center gap-2 text-xl disabled:opacity-50 disabled:grayscale disabled:cursor-not-allowed"
             >
-              Start Assessment
-              <span className="material-symbols-outlined">arrow_forward</span>
+              {isTestingBandwidth ? 'Checking Connection...' : bandwidth !== null && bandwidth < MIN_BANDWIDTH_MBPS ? 'Connection Too Slow' : 'Start Assessment'}
+              {!isTestingBandwidth && bandwidth !== null && bandwidth >= MIN_BANDWIDTH_MBPS && <span className="material-symbols-outlined">arrow_forward</span>}
             </button>
           </div>
         </div>
